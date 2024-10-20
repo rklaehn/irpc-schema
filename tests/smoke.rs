@@ -1,4 +1,7 @@
-use std::fmt;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use schema_macro::schema;
 
@@ -183,13 +186,17 @@ impl ReifiedSchema {
             ),
 
             // Map
-            ReifiedSchema::Map(key, value) => format!(
-                "{}{{\n{}:{}\n{}}}",
-                indentation,
-                key.pretty_print(indent + 2),
-                value.pretty_print(indent + 2),
-                indentation
-            ),
+            ReifiedSchema::Map(key, value) => {
+                let k = key.pretty_print(indent + 2);
+                let v = value.pretty_print(indent + 2);
+                format!(
+                    "{}{{\n{}: {}\n{}}}",
+                    indentation,
+                    k,
+                    v.trim_start(),
+                    indentation
+                )
+            }
         }
     }
 }
@@ -220,6 +227,18 @@ impl<T: Schema> Schema for Vec<T> {
     }
 }
 
+impl<T: Schema> Schema for BTreeSet<T> {
+    fn schema() -> ReifiedSchema {
+        ReifiedSchema::Set(Box::new(T::schema()))
+    }
+}
+
+impl<K: Schema, V: Schema> Schema for BTreeMap<K, V> {
+    fn schema() -> ReifiedSchema {
+        ReifiedSchema::Map(Box::new(K::schema()), Box::new(V::schema()))
+    }
+}
+
 #[schema(Nominal)]
 struct UnitStruct;
 
@@ -227,7 +246,9 @@ struct UnitStruct;
 enum BottomEnum {}
 
 #[schema(Nominal)]
-enum SingleCaseEnum { Case1 }
+enum SingleCaseEnum {
+    Case1,
+}
 
 #[schema(Nominal)]
 struct NominalTupleStruct(i32, String);
@@ -248,6 +269,9 @@ enum NominalEnum {
     UnitStruct(UnitStruct),
     BottomEnum(BottomEnum),
     SingleCaseEnum(SingleCaseEnum),
+    Seq(Vec<u64>),
+    Set(BTreeSet<u64>),
+    Map(BTreeMap<u64, u64>),
 }
 
 #[schema(Structural)]
