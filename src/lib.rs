@@ -54,8 +54,14 @@ fn generate_structural_schema(data: &syn::Data) -> proc_macro2::TokenStream {
                         }
                     })
                     .collect();
-                quote! {
-                    ReifiedSchema::Product(vec![#(#types),*])
+                if types.is_empty() {
+                    quote! {
+                        ReifiedSchema::Unit
+                    }
+                } else {
+                    quote! {
+                        ReifiedSchema::Product(vec![#(#types),*])
+                    }
                 }
             }
             Fields::Unnamed(fields) => {
@@ -69,12 +75,18 @@ fn generate_structural_schema(data: &syn::Data) -> proc_macro2::TokenStream {
                         }
                     })
                     .collect();
-                quote! {
-                    ReifiedSchema::Product(vec![#(#types),*])
+                if types.is_empty() {
+                    quote! {
+                        ReifiedSchema::Unit
+                    }
+                } else {
+                    quote! {
+                        ReifiedSchema::Product(vec![#(#types),*])
+                    }
                 }
             }
             Fields::Unit => quote! {
-                ReifiedSchema::Product(vec![])
+                ReifiedSchema::Unit
             },
         },
         Data::Enum(data_enum) => {
@@ -105,11 +117,22 @@ fn generate_structural_schema(data: &syn::Data) -> proc_macro2::TokenStream {
                             .collect(),
                         Fields::Unit => vec![],
                     };
-                    quote! {
-                        ReifiedSchema::Product(vec![#(#variant_fields),*])
+                    if variant_fields.is_empty() {
+                        quote! {
+                            ReifiedSchema::Unit
+                        }
+                    } else {
+                        quote! {
+                            ReifiedSchema::Product(vec![#(#variant_fields),*])
+                        }
                     }
                 })
                 .collect();
+            if variant_schemas.is_empty() {
+                return quote! {
+                    ReifiedSchema::Bottom
+                };
+            }
             quote! {
                 ReifiedSchema::Sum(vec![#(#variant_schemas),*])
             }
@@ -135,9 +158,14 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
                         }
                     })
                     .collect();
+                let schema = if field_schemas.is_empty() {
+                    quote! { ReifiedSchema::Unit }
+                } else {
+                    quote! { ReifiedSchema::Struct(vec![#(#field_schemas),*]) }
+                };
                 quote! {
                     ReifiedSchema::Named(
-                        Box::new(Named(#name_text.to_string(), ReifiedSchema::Struct(vec![#(#field_schemas),*])))
+                        Box::new(Named(#name_text.to_string(), #schema))
                     )
                 }
             }
@@ -153,9 +181,14 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
                         }
                     })
                     .collect();
+                let schema = if field_schemas.is_empty() {
+                    quote! { ReifiedSchema::Unit }
+                } else {
+                    quote! { ReifiedSchema::Product(vec![#(#field_schemas),*]) }
+                };
                 quote! {
                     ReifiedSchema::Named(
-                        Box::new(Named(#name_text.to_string(), ReifiedSchema::Product(vec![#(#field_schemas),*])))
+                        Box::new(Named(#name_text.to_string(), #schema))
                     )
                 }
             }
@@ -185,10 +218,17 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
                                     }
                                 })
                                 .collect::<Vec<_>>();
+                            let schema_type = if named.is_empty() {
+                                quote! { ReifiedSchema::Unit }
+                            } else if named.len() == 1 {
+                                quote! { ReifiedSchema::Struct(vec![#(#named),*]) }
+                            } else {
+                                quote! { ReifiedSchema::Enum(vec![#(#named),*]) }
+                            };
                             quote! {
                                 Named(
                                     #variant_name_text.to_string(),
-                                    ReifiedSchema::Struct(vec![#(#named),*])
+                                    #schema_type
                                 )
                             }
                         }
@@ -203,10 +243,17 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
                                     }
                                 })
                                 .collect::<Vec<_>>();
+                            let schema_type = if unnamed.is_empty() {
+                                quote! { ReifiedSchema::Unit }
+                            } else if unnamed.len() == 1 {
+                                quote! { ReifiedSchema::Product(vec![#(#unnamed),*]) }
+                            } else {
+                                quote! { ReifiedSchema::Sum(vec![#(#unnamed),*]) }
+                            };
                             quote! {
                                 Named(
                                     #variant_name_text.to_string(),
-                                    ReifiedSchema::Product(vec![#(#unnamed),*])
+                                    #schema_type
                                 )
                             }
                         }
