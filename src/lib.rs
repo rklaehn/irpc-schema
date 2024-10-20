@@ -270,9 +270,16 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
                 .collect::<Vec<_>>();
 
             let name_text = name.to_string();
+            let schema = if variants.is_empty() {
+                quote! { ReifiedSchema::Bottom }
+            } else if variants.len() == 1 {
+                quote! { ReifiedSchema::Struct(vec![#(#variants),*]) }
+            } else {
+                quote! { ReifiedSchema::Enum(vec![#(#variants),*]) }
+            };
             quote! {
                 ReifiedSchema::Named(
-                    Box::new(Named(#name_text.to_string(), ReifiedSchema::Enum(vec![#(#variants),*])))
+                    Box::new(Named(#name_text.to_string(), #schema))
                 )
             }
         }

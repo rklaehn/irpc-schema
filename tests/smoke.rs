@@ -224,6 +224,12 @@ impl<T: Schema> Schema for Vec<T> {
 struct UnitStruct;
 
 #[schema(Nominal)]
+enum BottomEnum {}
+
+#[schema(Nominal)]
+enum SingleCaseEnum { Case1 }
+
+#[schema(Nominal)]
 struct NominalTupleStruct(i32, String);
 
 #[schema(Nominal)]
@@ -240,6 +246,8 @@ enum NominalEnum {
     NominalStruct(NominalStruct),
     Unit,
     UnitStruct(UnitStruct),
+    BottomEnum(BottomEnum),
+    SingleCaseEnum(SingleCaseEnum),
 }
 
 #[schema(Structural)]
@@ -250,6 +258,8 @@ enum StructuralEnum {
     NominalStruct(NominalStruct),
     Unit,
     UnitStruct(UnitStruct),
+    BottomEnum(BottomEnum),
+    SingleCaseEnum(SingleCaseEnum),
 }
 
 #[test]
