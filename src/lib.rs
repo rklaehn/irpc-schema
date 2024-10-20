@@ -1,9 +1,9 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Data, Fields};
+use syn::{parse_macro_input, Data, DeriveInput, Fields};
 
-// Attribute macro for schema generation
+// The attribute macro for schema generation
 #[proc_macro_attribute]
 pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as syn::Ident);
@@ -21,141 +21,212 @@ pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
         #input
 
         impl Schema for #name {
-            fn schema() -> String {
+            fn schema() -> ReifiedSchema {
                 #schema_impl
             }
         }
     };
+    println!("{}", expanded);
 
     TokenStream::from(expanded)
 }
 
-// Generates schema for atom types (just the type name)
+// Generates an Atom schema (just the type name)
 fn generate_atom_schema(name: &syn::Ident) -> proc_macro2::TokenStream {
     let type_name = format!("{}", quote!(#name));
     quote! {
-        #type_name.to_string()
+        ReifiedSchema::Atom(#type_name.to_string())
     }
 }
 
-// Generates structural schema (tuple-like for structs, no names for enum variants)
+// Generates a Structural schema (tuples or unnamed structs)
 fn generate_structural_schema(data: &syn::Data) -> proc_macro2::TokenStream {
     match data {
-        Data::Struct(data_struct) => {
-            match &data_struct.fields {
-                Fields::Named(fields) => {
-                    let types: Vec<proc_macro2::TokenStream> = fields.named.iter().map(|f| {
+        Data::Struct(data_struct) => match &data_struct.fields {
+            Fields::Named(fields) => {
+                let types: Vec<proc_macro2::TokenStream> = fields
+                    .named
+                    .iter()
+                    .map(|f| {
                         let ty = &f.ty;
                         quote! {
                             <#ty as Schema>::schema()
                         }
-                    }).collect();
-                    quote! {
-                        format!("({})", vec![#(#types),*].join(","))
-                    }
-                }
-                Fields::Unnamed(fields) => {
-                    let types: Vec<proc_macro2::TokenStream> = fields.unnamed.iter().map(|f| {
-                        let ty = &f.ty;
-                        quote! {
-                            <#ty as Schema>::schema()
-                        }
-                    }).collect();
-                    quote! {
-                        format!("({})", vec![#(#types),*].join(","))
-                    }
-                }
-                Fields::Unit => quote! {
-                    "()".to_string()
-                },
-            }
-        }
-        Data::Enum(data_enum) => {
-            let variant_schemas: Vec<proc_macro2::TokenStream> = data_enum.variants.iter().map(|v| {
-                let variant_fields = match &v.fields {
-                    Fields::Named(fields) => fields.named.iter().map(|f| {
-                        let ty = &f.ty;
-                        quote! {
-                            <#ty as Schema>::schema()
-                        }
-                    }).collect(),
-                    Fields::Unnamed(fields) => fields.unnamed.iter().map(|f| {
-                        let ty = &f.ty;
-                        quote! {
-                            <#ty as Schema>::schema()
-                        }
-                    }).collect(),
-                    Fields::Unit => vec![],
-                };
+                    })
+                    .collect();
                 quote! {
-                    format!("({})", vec![#(#variant_fields),*].join(","))
+                    ReifiedSchema::Product(vec![#(#types),*])
                 }
-            }).collect();
+            }
+            Fields::Unnamed(fields) => {
+                let types: Vec<proc_macro2::TokenStream> = fields
+                    .unnamed
+                    .iter()
+                    .map(|f| {
+                        let ty = &f.ty;
+                        quote! {
+                            <#ty as Schema>::schema()
+                        }
+                    })
+                    .collect();
+                quote! {
+                    ReifiedSchema::Product(vec![#(#types),*])
+                }
+            }
+            Fields::Unit => quote! {
+                ReifiedSchema::Product(vec![])
+            },
+        },
+        Data::Enum(data_enum) => {
+            let variant_schemas: Vec<proc_macro2::TokenStream> = data_enum
+                .variants
+                .iter()
+                .map(|v| {
+                    let variant_fields = match &v.fields {
+                        Fields::Named(fields) => fields
+                            .named
+                            .iter()
+                            .map(|f| {
+                                let ty = &f.ty;
+                                quote! {
+                                    <#ty as Schema>::schema()
+                                }
+                            })
+                            .collect(),
+                        Fields::Unnamed(fields) => fields
+                            .unnamed
+                            .iter()
+                            .map(|f| {
+                                let ty = &f.ty;
+                                quote! {
+                                    <#ty as Schema>::schema()
+                                }
+                            })
+                            .collect(),
+                        Fields::Unit => vec![],
+                    };
+                    quote! {
+                        ReifiedSchema::Product(vec![#(#variant_fields),*])
+                    }
+                })
+                .collect();
             quote! {
-                vec![#(#variant_schemas),*].join("|")
+                ReifiedSchema::Sum(vec![#(#variant_schemas),*])
             }
         }
         _ => panic!("Unsupported type for Structural schema"),
     }
 }
 
-// Generates nominal schema (with field/variant names)
+// Generates a Nominal schema (Struct or Enum with names)
 fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::TokenStream {
+    let name_text = name.to_string();
     match data {
-        Data::Struct(data_struct) => {
-            match &data_struct.fields {
-                Fields::Named(fields) => {
-                    let field_schemas: Vec<proc_macro2::TokenStream> = fields.named.iter().map(|f| {
+        Data::Struct(data_struct) => match &data_struct.fields {
+            Fields::Named(fields) => {
+                let field_schemas: Vec<proc_macro2::TokenStream> = fields
+                    .named
+                    .iter()
+                    .map(|f| {
                         let field_name = f.ident.as_ref().unwrap().to_string();
                         let field_type = &f.ty;
                         quote! {
-                            format!("{}:{}", #field_name, <#field_type as Schema>::schema())
+                            Named(#field_name.to_string(), <#field_type as Schema>::schema())
                         }
-                    }).collect();
-                    quote! {
-                        format!("{}{{{}}}", stringify!(#name), vec![#(#field_schemas),*].join(","))
-                    }
-                }
-                Fields::Unnamed(fields) => {
-                    let field_schemas: Vec<proc_macro2::TokenStream> = fields.unnamed.iter().enumerate().map(|(i, f)| {
-                        let field_type = &f.ty;
-                        quote! {
-                            format!("field{}:{}", i, <#field_type as Schema>::schema())
-                        }
-                    }).collect();
-                    quote! {
-                        format!("{}({})", stringify!(#name), vec![#(#field_schemas),*].join(","))
-                    }
-                }
-                Fields::Unit => quote! {
-                    format!("{}()", stringify!(#name))
-                },
-            }
-        }
-        Data::Enum(data_enum) => {
-            let variants: Vec<proc_macro2::TokenStream> = data_enum.variants.iter().map(|v| {
-                let variant_name = &v.ident;
-                let variant_fields: Vec<proc_macro2::TokenStream> = match &v.fields {
-                    Fields::Named(fields) => fields.named.iter().map(|f| {
-                        let field_type = &f.ty;
-                        quote! {
-                            <#field_type as Schema>::schema()
-                        }
-                    }).collect(),
-                    Fields::Unnamed(fields) => fields.unnamed.iter().map(|f| {
-                        let field_type = &f.ty;
-                        quote! {
-                            <#field_type as Schema>::schema()
-                        }
-                    }).collect(),
-                    Fields::Unit => vec![],
-                };
+                    })
+                    .collect();
                 quote! {
-                    format!("{}({})", stringify!(#variant_name), vec![#(#variant_fields),*].join(","))
+                    ReifiedSchema::Named(
+                        Box::new(Named(#name_text.to_string(), ReifiedSchema::Struct(vec![#(#field_schemas),*])))
+                    )
                 }
-            }).collect();
+            }
+            Fields::Unnamed(fields) => {
+                let field_schemas: Vec<proc_macro2::TokenStream> = fields
+                    .unnamed
+                    .iter()
+                    .enumerate()
+                    .map(|(_i, f)| {
+                        let field_type = &f.ty;
+                        quote! {
+                            <#field_type as Schema>::schema()
+                        }
+                    })
+                    .collect();
+                quote! {
+                    ReifiedSchema::Named(
+                        Box::new(Named(#name_text.to_string(), ReifiedSchema::Product(vec![#(#field_schemas),*])))
+                    )
+                }
+            }
+            Fields::Unit => quote! {
+                ReifiedSchema::Named(
+                    Box::new(Named(#name_text.to_string(), ReifiedSchema::Unit))
+                )
+            },
+        },
+        Data::Enum(data_enum) => {
+            let variants: Vec<proc_macro2::TokenStream> = data_enum
+                .variants
+                .iter()
+                .map(|v| {
+                    let variant_name = &v.ident;
+                    let variant_name_text = variant_name.to_string();
+                    match &v.fields {
+                        Fields::Named(fields) => {
+                            let named = fields
+                                .named
+                                .iter()
+                                .map(|f| {
+                                    let field_type = &f.ty;
+                                    let field_name = f.ident.as_ref().unwrap().to_string();
+                                    quote! {
+                                        Named(#field_name.to_string(),<#field_type as Schema>::schema())
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+                            quote! {
+                                Named(
+                                    #variant_name_text.to_string(),
+                                    ReifiedSchema::Struct(vec![#(#named),*])
+                                )
+                            }
+                        }
+                        Fields::Unnamed(fields) => {
+                            let unnamed = fields
+                                .unnamed
+                                .iter()
+                                .map(|f| {
+                                    let field_type = &f.ty;
+                                    quote! {
+                                        <#field_type as Schema>::schema()
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+                            quote! {
+                                Named(
+                                    #variant_name_text.to_string(),
+                                    ReifiedSchema::Product(vec![#(#unnamed),*])
+                                )
+                            }
+                        }
+                        Fields::Unit => {
+                            quote! {
+                                Named(
+                                    #variant_name_text.to_string(),
+                                    ReifiedSchema::Unit
+                                )
+                            }
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let name_text = name.to_string();
             quote! {
-                vec![#(#variants),*].join("|")
+                ReifiedSchema::Named(
+                    Box::new(Named(#name_text.to_string(), ReifiedSchema::Enum(vec![#(#variants),*])))
+                )
             }
         }
         _ => panic!("Unsupported type for Nominal schema"),
