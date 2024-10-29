@@ -262,6 +262,42 @@ impl<T: HasSchema> HasSchema for HashSet<T> {
     }
 }
 
+impl<T: HasSchema> HasSchema for Option<T> {
+    fn schema() -> Schema {
+        Schema::Sum(vec![Schema::Unit, T::schema()])
+    }
+}
+
+impl<T: HasSchema> HasSchema for Box<T> {
+    fn schema() -> Schema {
+        T::schema()
+    }
+}
+
+impl<T: HasSchema> HasSchema for std::sync::Arc<T> {
+    fn schema() -> Schema {
+        T::schema()
+    }
+}
+
+impl<T: HasSchema> HasSchema for std::rc::Rc<T> {
+    fn schema() -> Schema {
+        T::schema()
+    }
+}
+
+impl<A: HasSchema, B: HasSchema> HasSchema for (A, B) {
+    fn schema() -> Schema {
+        Schema::Product(vec![A::schema(), B::schema()])
+    }
+}
+
+impl<A: HasSchema, B: HasSchema, C: HasSchema> HasSchema for (A, B, C) {
+    fn schema() -> Schema {
+        Schema::Product(vec![A::schema(), B::schema(), C::schema()])
+    }
+}
+
 impl<K: HasSchema, V: HasSchema> HasSchema for HashMap<K, V> {
     fn schema() -> Schema {
         Schema::Map(Box::new(K::schema()), Box::new(V::schema()))
