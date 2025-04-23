@@ -62,6 +62,8 @@ struct Point {
 
 despite being compatible in terms of serialized representation. Use nominal if you want to attach meaning in addition to the constituent types.
 
+The order of elements in a nominal or structural enum matters.
+
 # Schema evolution
 
 Let's say you have a simple RPC protocol.
