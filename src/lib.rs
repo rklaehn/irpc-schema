@@ -1,12 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    fmt, io, vec,
+    fmt, vec,
 };
 
-use anyhow::Context;
-use irpc::util::AsyncReadVarintExt;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tracing::error;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Named(pub String, pub Schema);
@@ -318,67 +315,4 @@ impl<K: HasSchema, V: HasSchema> HasSchema for HashMap<K, V> {
     fn schema() -> Schema {
         Schema::Map(Box::new(K::schema()), Box::new(V::schema()))
     }
-}
-
-pub struct Dispatcher {
-    pub(crate) handlers: HashMap<
-        [u8; 32],
-        Box<
-            dyn Fn(&[u8], quinn::SendStream, quinn::RecvStream) -> n0_future::boxed::BoxFuture<()>
-                + Send
-                + Sync,
-        >,
-    >,
-}
-
-impl Dispatcher {
-    pub fn add_handler<T: HasSchema + DeserializeOwned>(
-        &mut self,
-        handler: impl Fn(T, quinn::RecvStream, quinn::SendStream) -> n0_future::boxed::BoxFuture<()>
-        + Send
-        + Sync
-        + 'static,
-    ) {
-        let schema = T::schema();
-        let hash = schema.stable_hash();
-        self.handlers.insert(
-            hash.into(),
-            Box::new(move |data, send, recv| {
-                if let Ok(value) = postcard::from_bytes(data) {
-                    handler(value, recv, send)
-                } else {
-                    error!("Failed to deserialize data");
-                    Box::pin(async move {})
-                }
-            }),
-        );
-    }
-
-    pub async fn handle(
-        &self,
-        send: quinn::SendStream,
-        mut recv: quinn::RecvStream,
-    ) -> anyhow::Result<()> {
-        let mut hash = [0u8; 32];
-        recv.read_exact(&mut hash).await?;
-        let size = recv.read_varint_u64().await?.context("EOF")?;
-        let mut buf = vec![0; size as usize];
-        recv.read_exact(&mut buf).await?;
-        if let Some(handler) = self.handlers.get(&hash) {
-            handler(&buf, send, recv).await;
-        } else {
-            error!("No handler found for data");
-        }
-        Ok(())
-    }
-}
-
-pub async fn send<T: Serialize + HasSchema>(
-    send: &mut quinn::SendStream,
-    data: &T,
-) -> anyhow::Result<()> {
-    let data = postcard::to_allocvec(data).context("Failed to serialize data")?;
-    send.write_all(T::schema().stable_hash().as_bytes()).await?;
-    send.write_all(&data).await?;
-    Ok(())
 }

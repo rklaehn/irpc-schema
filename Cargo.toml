@@ -9,10 +9,11 @@ postcard = { version = "1.0.10", features = ["alloc"] }
 serde = "1.0.219"
 irpc-schema-derive = { path = "irpc-schema-derive" }
 tracing = "0.1.41"
-quinn = { version = "0.13.0", package = "iroh-quinn" }
-n0-future = "0.1.2"
-irpc = { version = "0.2.2", features = ["rpc"] }
-anyhow = "1.0.98"
 
 [workspace]
 members = ["irpc-schema-derive"]
+
+[dev-dependencies]
+anyhow = "1.0.98"
+hex = "0.4.3"
+testresult = "0.4.1"
