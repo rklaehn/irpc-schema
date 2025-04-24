@@ -290,9 +290,6 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
         _ => panic!("Unsupported type for Nominal schema"),
     }
 }
-
-/// A proc macro that generates serialization and deserialization implementations
-/// for enums using [u8; 32] hash discriminators from schema().stable_hash().as_bytes()
 #[proc_macro_attribute]
 pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
@@ -304,7 +301,8 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
     // Get the name of the enum
     let enum_name = &input.ident;
     
-    // Generate a visitor name
+    // Generate names for our hash struct and visitor
+    let hashes_struct_name = syn::Ident::new(&format!("{}SchemaHashes", enum_name), enum_name.span());
     let visitor_name = syn::Ident::new(&format!("{}Visitor", enum_name), enum_name.span());
     
     // Collect all variants
@@ -338,11 +336,23 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
         field_types.push(field_type);
     }
     
-    // Generate serialization implementation
-    let serialize_arms = variant_names.iter().zip(field_types.iter()).map(|(variant_name, field_type)| {
+    // Define fields for our SchemaHashes struct
+    let hash_fields = variant_names.iter().map(|variant_name| {
+        quote! { pub #variant_name: [u8; 32] }
+    });
+    
+    // Generate initialization for our SchemaHashes struct
+    let hash_inits = variant_names.iter().zip(field_types.iter()).map(|(variant_name, field_type)| {
+        quote! { 
+            #variant_name: *#field_type::schema().stable_hash().as_bytes() 
+        }
+    });
+    
+    // Generate serialization arms using the static hashes
+    let serialize_arms = variant_names.iter().map(|variant_name| {
         quote! {
             #enum_name::#variant_name(payload) => {
-                let hash = *#field_type::schema().stable_hash().as_bytes();
+                let hash = SCHEMA_HASHES.get().unwrap().#variant_name;
                 
                 let mut tup = serializer.serialize_tuple(2)?;
                 tup.serialize_element(&hash)?;
@@ -352,11 +362,10 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
         }
     });
     
-    // Generate deserialization branches
+    // Generate deserialization branches using the static hashes
     let deserialize_branches = variant_names.iter().zip(field_types.iter()).map(|(variant_name, field_type)| {
         quote! {
-            // Get the static type hash by calling schema().stable_hash() on the type itself
-            if &hash_bytes == #field_type::schema().stable_hash().as_bytes() {
+            if hash_bytes == SCHEMA_HASHES.get().unwrap().#variant_name {
                 let payload = seq.next_element::<#field_type>()?.ok_or_else(|| 
                     serde::de::Error::custom("missing payload"))?;
                 return Ok(#enum_name::#variant_name(payload));
@@ -369,6 +378,29 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
         // The original enum definition
         #original_enum
         
+        // Define a struct to hold the schema hashes
+        struct #hashes_struct_name {
+            #(#hash_fields),*
+        }
+        
+        impl #hashes_struct_name {
+            // Create a new instance with all the hashes computed
+            fn new() -> Self {
+                Self {
+                    #(#hash_inits),*
+                }
+            }
+        }
+        
+        // Create a static instance of our hashes using std::sync::OnceLock
+        use std::sync::OnceLock;
+        static SCHEMA_HASHES: OnceLock<#hashes_struct_name> = OnceLock::new();
+        
+        // Helper function to ensure the hashes are initialized
+        fn get_schema_hashes() -> &'static #hashes_struct_name {
+            SCHEMA_HASHES.get_or_init(|| #hashes_struct_name::new())
+        }
+        
         // Implementation of serde::Serialize for the enum
         impl serde::Serialize for #enum_name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -376,9 +408,17 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
                 S: serde::Serializer,
             {
                 use serde::ser::SerializeTuple;
+                let hashes = get_schema_hashes();
                 
                 match self {
-                    #(#serialize_arms),*
+                    #(#enum_name::#variant_names(payload) => {
+                        let hash = hashes.#variant_names;
+                        
+                        let mut tup = serializer.serialize_tuple(2)?;
+                        tup.serialize_element(&hash)?;
+                        tup.serialize_element(payload)?;
+                        tup.end()
+                    }),*
                 }
             }
         }
@@ -401,8 +441,17 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
                 let hash_bytes: [u8; 32] = seq.next_element()?.ok_or_else(|| 
                     serde::de::Error::custom("missing hash"))?;
                 
-                // Check each variant's hash
-                #(#deserialize_branches)*
+                // Get the schema hashes
+                let hashes = get_schema_hashes();
+                
+                // Check against our static hashes
+                #(
+                    if hash_bytes == hashes.#variant_names {
+                        let payload = seq.next_element::<#field_types>()?.ok_or_else(|| 
+                            serde::de::Error::custom("missing payload"))?;
+                        return Ok(#enum_name::#variant_names(payload));
+                    }
+                )*
                 
                 // If none matched, return an error
                 Err(serde::de::Error::custom("unknown discriminator"))
@@ -420,7 +469,8 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
         }
     };
 
-    eprintln!("Generated code: {}", generated_impls);
+    eprintln!("{}", generated_impls);
+
     // Return the generated code
     TokenStream::from(generated_impls)
 }
