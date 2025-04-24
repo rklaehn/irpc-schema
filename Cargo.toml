@@ -15,5 +15,6 @@ members = ["irpc-schema-derive"]
 
 [dev-dependencies]
 anyhow = "1.0.98"
+derive_more = { version = "2.0.1", features = ["from"] }
 hex = "0.4.3"
 testresult = "0.4.1"
