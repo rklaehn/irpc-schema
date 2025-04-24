@@ -1,9 +1,20 @@
 use anyhow::Result;
-use irpc_schema::{HasSchema, Named, Schema};
 use irpc_schema_derive::schema;
+use irpc_schema::{Schema, HasSchema, Named};
 
-#[schema(Nominal)]
-pub struct GetRequest {}
+mod v1 {
+    use super::*;
+    #[schema(Nominal)]
+    pub struct GetRequest {
+        pub key: String,
+    }
+
+    #[schema(Nominal)]
+    pub struct PutRequest {
+        pub key: String,
+        pub value: String,
+    }
+}
 
 fn main() -> Result<()> {
     Ok(())

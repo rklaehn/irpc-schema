@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    fmt,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use irpc_schema::{HasSchema, Named, Schema};
 use irpc_schema_derive::{schema, serialize_stable};
