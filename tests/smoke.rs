@@ -4,7 +4,7 @@ use std::{
 };
 
 use irpc_schema::{HasSchema, Named, Schema};
-use irpc_schema_derive::schema;
+use irpc_schema_derive::{hash_discriminator, schema};
 
 #[schema(Nominal)]
 struct UnitStruct;
@@ -105,6 +105,17 @@ fn test_enum_cases() {
     for Named(name, value) in cases {
         println!("{}: {}", name, value.stable_hash());
     }
+}
+
+#[test]
+fn test_serialize_schema() {
+    #[hash_discriminator]
+    enum Test {
+        Foo(u32),
+        Bar(String),
+    }
+
+    let a = String::schema().stable_hash().as_bytes();
 }
 
 mod output {

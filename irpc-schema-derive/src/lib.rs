@@ -1,7 +1,11 @@
 extern crate proc_macro;
+use std::collections::{HashMap, HashSet};
+
 use proc_macro::TokenStream;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields};
+use syn::{parse_macro_input, DeriveInput, Data, Fields, Type, Ident, Error, spanned::Spanned};
+use syn::{ItemEnum};
 
 // The attribute macro for schema generation
 #[proc_macro_attribute]
@@ -285,4 +289,138 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
         }
         _ => panic!("Unsupported type for Nominal schema"),
     }
+}
+
+/// A proc macro that generates serialization and deserialization implementations
+/// for enums using [u8; 32] hash discriminators from schema().stable_hash().as_bytes()
+#[proc_macro_attribute]
+pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Parse the input tokens into a syntax tree
+    let input = parse_macro_input!(item as ItemEnum);
+    
+    // Get the original enum
+    let original_enum = input.clone();
+    
+    // Get the name of the enum
+    let enum_name = &input.ident;
+    
+    // Generate a visitor name
+    let visitor_name = syn::Ident::new(&format!("{}Visitor", enum_name), enum_name.span());
+    
+    // Collect all variants
+    let variants = &input.variants;
+    
+    // Make sure all variants have a single unnamed field
+    for variant in variants {
+        match &variant.fields {
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                // This is good - a single unnamed field
+            },
+            _ => panic!("HashDiscriminator only supports variants with a single unnamed field"),
+        }
+    }
+    
+    // Collect all variant names and their field types
+    let mut variant_names = Vec::new();
+    let mut field_types = Vec::new();
+    
+    for variant in variants {
+        let variant_name = &variant.ident;
+        variant_names.push(variant_name);
+        
+        let field_type = match &variant.fields {
+            Fields::Unnamed(fields) => {
+                &fields.unnamed.first().unwrap().ty
+            },
+            _ => unreachable!(), // We've already checked this above
+        };
+        
+        field_types.push(field_type);
+    }
+    
+    // Generate serialization implementation
+    let serialize_arms = variant_names.iter().zip(field_types.iter()).map(|(variant_name, field_type)| {
+        quote! {
+            #enum_name::#variant_name(payload) => {
+                let hash = *#field_type::schema().stable_hash().as_bytes();
+                
+                let mut tup = serializer.serialize_tuple(2)?;
+                tup.serialize_element(&hash)?;
+                tup.serialize_element(payload)?;
+                tup.end()
+            }
+        }
+    });
+    
+    // Generate deserialization branches
+    let deserialize_branches = variant_names.iter().zip(field_types.iter()).map(|(variant_name, field_type)| {
+        quote! {
+            // Get the static type hash by calling schema().stable_hash() on the type itself
+            if &hash_bytes == #field_type::schema().stable_hash().as_bytes() {
+                let payload = seq.next_element::<#field_type>()?.ok_or_else(|| 
+                    serde::de::Error::custom("missing payload"))?;
+                return Ok(#enum_name::#variant_name(payload));
+            }
+        }
+    });
+    
+    // Generate the implementation
+    let generated_impls = quote! {
+        // The original enum definition
+        #original_enum
+        
+        // Implementation of serde::Serialize for the enum
+        impl serde::Serialize for #enum_name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                use serde::ser::SerializeTuple;
+                
+                match self {
+                    #(#serialize_arms),*
+                }
+            }
+        }
+        
+        // Visitor struct for deserialization
+        struct #visitor_name;
+        
+        impl<'de> serde::de::Visitor<'de> for #visitor_name {
+            type Value = #enum_name;
+            
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a tuple with a hash discriminator and payload")
+            }
+            
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                // Deserialize the hash discriminator (first element)
+                let hash_bytes: [u8; 32] = seq.next_element()?.ok_or_else(|| 
+                    serde::de::Error::custom("missing hash"))?;
+                
+                // Check each variant's hash
+                #(#deserialize_branches)*
+                
+                // If none matched, return an error
+                Err(serde::de::Error::custom("unknown discriminator"))
+            }
+        }
+        
+        // Implementation of serde::Deserialize for the enum
+        impl<'de> serde::Deserialize<'de> for #enum_name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                deserializer.deserialize_seq(#visitor_name)
+            }
+        }
+    };
+
+    eprintln!("Generated code: {}", generated_impls);
+    // Return the generated code
+    TokenStream::from(generated_impls)
 }
