@@ -108,21 +108,21 @@ fn test_enum_cases() {
     }
 }
 
-// #[test]
-// fn test_serialize_schema() -> TestResult<()> {
-//     #[derive(Debug, Eq, PartialEq)]
-//     #[serialize_stable]
-//     enum Test {
-//         Foo(u32),
-//         Bar(String),
-//     }
+#[test]
+fn test_serialize_schema() -> TestResult<()> {
+    #[derive(Debug, Eq, PartialEq)]
+    #[serialize_stable]
+    enum Test {
+        Foo(u32),
+        Bar(String),
+    }
 
-//     let v = Test::Foo(1);
-//     let v_bytes = postcard::to_allocvec(&v)?;
-//     let mut expected = u32::schema().stable_hash().as_bytes().to_vec();
-//     expected.extend_from_slice(&postcard::to_allocvec(&1u32)?);
-//     assert_eq!(v_bytes, expected);
-//     let v_out: Test = postcard::from_bytes(&v_bytes)?;
-//     assert_eq!(v, v_out);
-//     Ok(())
-// }
+    let v = Test::Foo(1);
+    let v_bytes = postcard::to_allocvec(&v)?;
+    let mut expected = u32::schema().stable_hash().as_bytes().to_vec();
+    expected.extend_from_slice(&postcard::to_allocvec(&1u32)?);
+    assert_eq!(v_bytes, expected);
+    let v_out: Test = postcard::from_bytes(&v_bytes)?;
+    assert_eq!(v, v_out);
+    Ok(())
+}

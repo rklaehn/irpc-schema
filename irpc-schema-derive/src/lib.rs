@@ -1,11 +1,8 @@
 extern crate proc_macro;
-use std::collections::{HashMap, HashSet};
 
 use proc_macro::TokenStream;
-use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Data, Fields, Type, Ident, Error, spanned::Spanned};
-use syn::{ItemEnum};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, ItemEnum};
 
 // The attribute macro for schema generation
 #[proc_macro_attribute]
@@ -30,7 +27,6 @@ pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
     };
-    println!("{}", expanded);
 
     TokenStream::from(expanded)
 }
@@ -290,70 +286,79 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
         _ => panic!("Unsupported type for Nominal schema"),
     }
 }
+
+/// Implements stable serialization and deserialization for an enum with
+/// a number of distinct variants.
+///
+/// Each variant must have a single unnamed field of distinct type. Each type
+/// must implement `HasSchema`.
 #[proc_macro_attribute]
-pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree
     let input = parse_macro_input!(item as ItemEnum);
-    
+
     // Get the original enum
     let original_enum = input.clone();
-    
+
     // Get the name of the enum
     let enum_name = &input.ident;
-    
-    // Generate names for our hash struct and visitor
-    let hashes_struct_name = syn::Ident::new(&format!("{}SchemaHashes", enum_name), enum_name.span());
-    let visitor_name = syn::Ident::new(&format!("{}Visitor", enum_name), enum_name.span());
-    
+
+    // Generate names for our hash struct
+    let hashes_struct_name =
+        syn::Ident::new(&format!("{}SchemaHashes", enum_name), enum_name.span());
+    let static_name = syn::Ident::new(&format!("__{}_SCHEMA_HASHES", enum_name), enum_name.span());
+
     // Collect all variants
     let variants = &input.variants;
-    
+
     // Make sure all variants have a single unnamed field
     for variant in variants {
         match &variant.fields {
             Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
                 // This is good - a single unnamed field
-            },
+            }
             _ => panic!("HashDiscriminator only supports variants with a single unnamed field"),
         }
     }
-    
+
     // Collect all variant names and their field types
     let mut variant_names = Vec::new();
     let mut field_types = Vec::new();
-    
+
     for variant in variants {
         let variant_name = &variant.ident;
         variant_names.push(variant_name);
-        
+
         let field_type = match &variant.fields {
-            Fields::Unnamed(fields) => {
-                &fields.unnamed.first().unwrap().ty
-            },
+            Fields::Unnamed(fields) => &fields.unnamed.first().unwrap().ty,
             _ => unreachable!(), // We've already checked this above
         };
-        
+
         field_types.push(field_type);
     }
-    
+
     // Define fields for our SchemaHashes struct
     let hash_fields = variant_names.iter().map(|variant_name| {
         quote! { pub #variant_name: [u8; 32] }
     });
-    
+
     // Generate initialization for our SchemaHashes struct
-    let hash_inits = variant_names.iter().zip(field_types.iter()).map(|(variant_name, field_type)| {
-        quote! { 
-            #variant_name: *#field_type::schema().stable_hash().as_bytes() 
-        }
-    });
-    
+    let hash_inits =
+        variant_names
+            .iter()
+            .zip(field_types.iter())
+            .map(|(variant_name, field_type)| {
+                quote! {
+                    #variant_name: *#field_type::schema().stable_hash().as_bytes()
+                }
+            });
+
     // Generate serialization arms using the static hashes
     let serialize_arms = variant_names.iter().map(|variant_name| {
         quote! {
             #enum_name::#variant_name(payload) => {
-                let hash = SCHEMA_HASHES.get().unwrap().#variant_name;
-                
+                let hash = hashes.#variant_name;
+
                 let mut tup = serializer.serialize_tuple(2)?;
                 tup.serialize_element(&hash)?;
                 tup.serialize_element(payload)?;
@@ -361,28 +366,36 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
             }
         }
     });
-    
+
     // Generate deserialization branches using the static hashes
-    let deserialize_branches = variant_names.iter().zip(field_types.iter()).map(|(variant_name, field_type)| {
-        quote! {
-            if hash_bytes == SCHEMA_HASHES.get().unwrap().#variant_name {
-                let payload = seq.next_element::<#field_type>()?.ok_or_else(|| 
-                    serde::de::Error::custom("missing payload"))?;
-                return Ok(#enum_name::#variant_name(payload));
-            }
-        }
-    });
-    
+    let deserialize_branches =
+        variant_names
+            .iter()
+            .zip(field_types.iter())
+            .map(|(variant_name, field_type)| {
+                quote! {
+                    if hash_bytes == hashes.#variant_name {
+                        let payload = seq.next_element::<#field_type>()?.ok_or_else(||
+                            serde::de::Error::custom("missing payload"))?;
+                        return Ok(#enum_name::#variant_name(payload));
+                    }
+                }
+            });
+
     // Generate the implementation
     let generated_impls = quote! {
         // The original enum definition
         #original_enum
-        
+
         // Define a struct to hold the schema hashes
         struct #hashes_struct_name {
             #(#hash_fields),*
         }
-        
+
+        // Create a static instance of our hashes using std::sync::OnceLock
+        use std::sync::OnceLock;
+        static #static_name: OnceLock<#hashes_struct_name> = OnceLock::new();
+
         impl #hashes_struct_name {
             // Create a new instance with all the hashes computed
             fn new() -> Self {
@@ -390,17 +403,13 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
                     #(#hash_inits),*
                 }
             }
+
+            // Static accessor function to get or initialize the global instance
+            fn get() -> &'static Self {
+                #static_name.get_or_init(|| Self::new())
+            }
         }
-        
-        // Create a static instance of our hashes using std::sync::OnceLock
-        use std::sync::OnceLock;
-        static SCHEMA_HASHES: OnceLock<#hashes_struct_name> = OnceLock::new();
-        
-        // Helper function to ensure the hashes are initialized
-        fn get_schema_hashes() -> &'static #hashes_struct_name {
-            SCHEMA_HASHES.get_or_init(|| #hashes_struct_name::new())
-        }
-        
+
         // Implementation of serde::Serialize for the enum
         impl serde::Serialize for #enum_name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -408,68 +417,54 @@ pub fn hash_discriminator(_attr: TokenStream, item: TokenStream) -> TokenStream 
                 S: serde::Serializer,
             {
                 use serde::ser::SerializeTuple;
-                let hashes = get_schema_hashes();
-                
+                let hashes = #hashes_struct_name::get();
+
                 match self {
-                    #(#enum_name::#variant_names(payload) => {
-                        let hash = hashes.#variant_names;
-                        
-                        let mut tup = serializer.serialize_tuple(2)?;
-                        tup.serialize_element(&hash)?;
-                        tup.serialize_element(payload)?;
-                        tup.end()
-                    }),*
+                    #(#serialize_arms),*
                 }
             }
         }
-        
-        // Visitor struct for deserialization
-        struct #visitor_name;
-        
-        impl<'de> serde::de::Visitor<'de> for #visitor_name {
-            type Value = #enum_name;
-            
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a tuple with a hash discriminator and payload")
-            }
-            
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                // Deserialize the hash discriminator (first element)
-                let hash_bytes: [u8; 32] = seq.next_element()?.ok_or_else(|| 
-                    serde::de::Error::custom("missing hash"))?;
-                
-                // Get the schema hashes
-                let hashes = get_schema_hashes();
-                
-                // Check against our static hashes
-                #(
-                    if hash_bytes == hashes.#variant_names {
-                        let payload = seq.next_element::<#field_types>()?.ok_or_else(|| 
-                            serde::de::Error::custom("missing payload"))?;
-                        return Ok(#enum_name::#variant_names(payload));
-                    }
-                )*
-                
-                // If none matched, return an error
-                Err(serde::de::Error::custom("unknown discriminator"))
-            }
-        }
-        
-        // Implementation of serde::Deserialize for the enum
+
+        // Implementation of serde::Deserialize for the enum with visitor inside
         impl<'de> serde::Deserialize<'de> for #enum_name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
                 D: serde::Deserializer<'de>,
             {
-                deserializer.deserialize_seq(#visitor_name)
+                // Define the visitor struct inside the deserialize implementation
+                struct Visitor;
+
+                impl<'de> serde::de::Visitor<'de> for Visitor {
+                    type Value = #enum_name;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        formatter.write_str("a tuple with a hash discriminator and payload")
+                    }
+
+                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                    where
+                        A: serde::de::SeqAccess<'de>,
+                    {
+                        // Deserialize the hash discriminator (first element)
+                        let hash_bytes = seq.next_element::<[u8; 32]>()?.ok_or_else(||
+                            serde::de::Error::custom("missing hash"))?;
+
+                        // Get the schema hashes
+                        let hashes = #hashes_struct_name::get();
+
+                        // Check against our static hashes
+                        #(#deserialize_branches)*
+
+                        // If none matched, return an error
+                        Err(serde::de::Error::custom("unknown discriminator"))
+                    }
+                }
+
+                // Use the locally-defined visitor
+                deserializer.deserialize_tuple(2, Visitor)
             }
         }
     };
-
-    eprintln!("{}", generated_impls);
 
     // Return the generated code
     TokenStream::from(generated_impls)
