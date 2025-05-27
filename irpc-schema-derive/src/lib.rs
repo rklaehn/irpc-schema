@@ -2,19 +2,36 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields, ItemEnum};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, ItemEnum, Lit, Meta};
 
 // The attribute macro for schema generation
 #[proc_macro_attribute]
 pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let attr = parse_macro_input!(attr as syn::Ident);
     let input = parse_macro_input!(item as DeriveInput);
     let name = &input.ident;
 
-    let schema_impl = match attr.to_string().as_str() {
+    // Parse the attribute to extract schema type and optional name
+    let attr_meta = parse_macro_input!(attr as Meta);
+    let (schema_type, explicit_name) = match attr_meta {
+        Meta::Path(path) => {
+            let schema_type = path.get_ident().unwrap().to_string();
+            (schema_type, None)
+        }
+        Meta::NameValue(name_value) => {
+            let schema_type = name_value.path.get_ident().unwrap().to_string();
+            let explicit_name = match name_value.lit {
+                Lit::Str(lit_str) => lit_str.value(),
+                _ => panic!("Expected string literal for schema name"),
+            };
+            (schema_type, Some(explicit_name))
+        }
+        _ => panic!("Unsupported attribute format"),
+    };
+
+    let schema_impl = match schema_type.as_str() {
         "Atom" => generate_atom_schema(&name),
         "Structural" => generate_structural_schema(&input.data),
-        "Nominal" => generate_nominal_schema(&name, &input.data),
+        "Nominal" => generate_nominal_schema(&name, &input.data, explicit_name.as_ref().map(|s| s.as_str())),
         _ => panic!("Unsupported schema type"),
     };
 
@@ -142,8 +159,8 @@ fn generate_structural_schema(data: &syn::Data) -> proc_macro2::TokenStream {
 }
 
 // Generates a Nominal schema (Struct or Enum with names)
-fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::TokenStream {
-    let name_text = name.to_string();
+fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data, explicit_name: Option<&str>) -> proc_macro2::TokenStream {
+    let name_text = explicit_name.unwrap_or(&name.to_string()).to_string();
     match data {
         Data::Struct(data_struct) => match &data_struct.fields {
             Fields::Named(fields) => {
@@ -269,7 +286,6 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data) -> proc_macro2::
                 })
                 .collect::<Vec<_>>();
 
-            let name_text = name.to_string();
             let schema = if variants.is_empty() {
                 quote! { ::irpc_schema::Schema::Bottom }
             } else if variants.len() == 1 {

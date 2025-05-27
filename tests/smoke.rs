@@ -24,6 +24,11 @@ struct NominalStruct {
     name: String,
 }
 
+#[schema(Nominal = "CustomName")]
+struct CustomNamedStruct {
+    value: u32,
+}
+
 #[schema(Nominal)]
 enum NominalEnum {
     Tuple(i32, String),
@@ -76,6 +81,16 @@ fn test_bottom_enum_schema() {
     assert_eq!(
         BottomEnum::schema(),
         Schema::named("BottomEnum", Schema::Bottom)
+    );
+}
+
+#[test]
+fn test_custom_named_struct() {
+    assert_eq!(
+        CustomNamedStruct::schema(),
+        Schema::named("CustomName", Schema::Struct(vec![
+            Named("value".to_string(), Schema::Atom("u32".to_string()))
+        ]))
     );
 }
 
