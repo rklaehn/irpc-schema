@@ -29,6 +29,9 @@ struct CustomNamedStruct {
     value: u32,
 }
 
+#[schema(Atom = "CustomAtom")]
+struct CustomAtomStruct;
+
 #[schema(Nominal)]
 enum NominalEnum {
     Tuple(i32, String),
@@ -91,6 +94,14 @@ fn test_custom_named_struct() {
         Schema::named("CustomName", Schema::Struct(vec![
             Named("value".to_string(), Schema::Atom("u32".to_string()))
         ]))
+    );
+}
+
+#[test]
+fn test_custom_atom_struct() {
+    assert_eq!(
+        CustomAtomStruct::schema(),
+        Schema::Atom("CustomAtom".to_string())
     );
 }
 

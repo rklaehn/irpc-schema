@@ -29,7 +29,7 @@ pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let schema_impl = match schema_type.as_str() {
-        "Atom" => generate_atom_schema(&name),
+        "Atom" => generate_atom_schema(&name, explicit_name.as_ref().map(|s| s.as_str())),
         "Structural" => generate_structural_schema(&input.data),
         "Nominal" => generate_nominal_schema(&name, &input.data, explicit_name.as_ref().map(|s| s.as_str())),
         _ => panic!("Unsupported schema type"),
@@ -49,8 +49,11 @@ pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 // Generates an Atom schema (just the type name)
-fn generate_atom_schema(name: &syn::Ident) -> proc_macro2::TokenStream {
-    let type_name = format!("{}", quote!(#name));
+fn generate_atom_schema(name: &syn::Ident, explicit_name: Option<&str>) -> proc_macro2::TokenStream {
+    let type_name = match explicit_name {
+        Some(name) => name.to_string(),
+        None => name.to_string(),
+    };
     quote! {
         ::irpc_schema::Schema::Atom(#type_name.to_string())
     }
