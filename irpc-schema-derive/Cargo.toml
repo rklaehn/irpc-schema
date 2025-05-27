@@ -1,7 +1,12 @@
 [package]
 name = "irpc-schema-derive"
 version = "0.1.0"
+description = "derive macro for irpc-schema"
+edition = "2021"
+authors = ["rklaehn <rklaehn@protonmail.com>"]
+license = "MIT OR Apache-2.0"
 edition = "2018"
+keywords = ["quic", "schema", "rpc"]
 
 [lib]
 proc-macro = true
