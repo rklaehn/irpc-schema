@@ -1,7 +1,12 @@
 [package]
 name = "irpc-schema"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+description = "simple schema language for rpc calls"
+authors = ["rklaehn <rklaehn@protonmail.com>"]
+license = "MIT OR Apache-2.0"
+keywords = ["quic", "schema", "rpc"]
+
 
 [dependencies]
 blake3 = "1.8.2"
