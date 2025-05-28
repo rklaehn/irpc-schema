@@ -341,9 +341,9 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let enum_name = &input.ident;
 
     // Generate names for our hash struct
-    let schema_struct_name =
-        syn::Ident::new(&format!("{}Schemas", enum_name), enum_name.span());
-    let schema_struct_static_name = syn::Ident::new(&format!("__{}_SCHEMAS", enum_name), enum_name.span());
+    let schema_struct_name = syn::Ident::new(&format!("{}Schemas", enum_name), enum_name.span());
+    let schema_struct_static_name =
+        syn::Ident::new(&format!("__{}_SCHEMAS", enum_name), enum_name.span());
 
     // Collect all variants
     let variants = &input.variants;
@@ -390,12 +390,12 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             });
 
-    let hashes_to_map =
+    let schema_struct_to_map =
         variant_names
             .iter()
             .map(|variant_name| {
                 quote! {
-                    map.insert(hashes.#variant_name.hash, &hashes.#variant_name.schema);
+                    map.insert(schema_struct_value.#variant_name.hash, &schema_struct_value.#variant_name.schema);
                 }
             });
 
@@ -403,7 +403,7 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let serialize_arms = variant_names.iter().map(|variant_name| {
         quote! {
             #enum_name::#variant_name(payload) => {
-                let hash = hashes.#variant_name.hash;
+                let hash = schema_struct_value.#variant_name.hash;
 
                 let mut tup = serializer.serialize_tuple(2)?;
                 tup.serialize_element(&hash)?;
@@ -420,7 +420,7 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
             .zip(field_types.iter())
             .map(|(variant_name, field_type)| {
                 quote! {
-                    if &hash_bytes == &hashes.#variant_name.hash {
+                    if &hash_bytes == &schema_struct_value.#variant_name.hash {
                         let payload = seq.next_element::<#field_type>()?.ok_or_else(||
                             serde::de::Error::custom("missing payload"))?;
                         return Ok(#enum_name::#variant_name(payload));
@@ -460,8 +460,8 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             fn get_hashes(&self) -> ::std::collections::BTreeMap<[u8; 32], &'static ::irpc_schema::Schema> {
                 let mut map = ::std::collections::BTreeMap::<[u8; 32], &'static ::irpc_schema::Schema>::new();
-                let hashes = Self::get();
-                #(#hashes_to_map)*;
+                let schema_struct_value = Self::get();
+                #(#schema_struct_to_map)*;
                 map
             }
         }
@@ -479,7 +479,7 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 S: serde::Serializer,
             {
                 use serde::ser::SerializeTuple;
-                let hashes = #schema_struct_name::get();
+                let schema_struct_value = #schema_struct_name::get();
 
                 match self {
                     #(#serialize_arms),*
@@ -512,7 +512,7 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
                             serde::de::Error::custom("missing hash"))?;
 
                         // Get the schema hashes
-                        let hashes = #schema_struct_name::get();
+                        let schema_struct_value = #schema_struct_name::get();
 
                         // Check against our static hashes
                         #(#deserialize_branches)*
@@ -552,9 +552,9 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
     let enum_name = &input.ident;
 
     // Generate names for our hash struct
-    let schema_struct_name =
-        syn::Ident::new(&format!("{}Schemas", enum_name), enum_name.span());
-    let schema_struct_static_name = syn::Ident::new(&format!("__{}_SCHEMAS", enum_name), enum_name.span());
+    let schema_struct_name = syn::Ident::new(&format!("{}Schemas", enum_name), enum_name.span());
+    let schema_struct_static_name =
+        syn::Ident::new(&format!("__{}_SCHEMAS", enum_name), enum_name.span());
 
     // Collect all variants
     let variants = &input.variants;
@@ -605,7 +605,7 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
     let serialize_arms = variant_names.iter().map(|variant_name| {
         quote! {
             #enum_name::#variant_name(payload) => {
-                let hash = hashes.#variant_name.hash;
+                let hash = schema_struct_value.#variant_name.hash;
 
                 let mut tup = serializer.serialize_tuple(2)?;
                 tup.serialize_element(&hash)?;
@@ -622,7 +622,7 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
             .zip(field_types.iter())
             .map(|(variant_name, field_type)| {
                 quote! {
-                    if &hash_bytes == &hashes.#variant_name.hash {
+                    if &hash_bytes == &schema_struct_value.#variant_name.hash {
                         let payload = seq.next_element::<#field_type>()?.ok_or_else(||
                             serde::de::Error::custom("missing payload"))?;
                         return Ok(#enum_name::#variant_name(payload));
@@ -667,7 +667,7 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
                 S: serde::Serializer,
             {
                 use serde::ser::SerializeTuple;
-                let hashes = #schema_struct_name::get();
+                let schema_struct_value = #schema_struct_name::get();
 
                 match self {
                     #(#serialize_arms),*
@@ -700,7 +700,7 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
                             serde::de::Error::custom("missing hash"))?;
 
                         // Get the schema hashes
-                        let hashes = #schema_struct_name::get();
+                        let schema_struct_value = #schema_struct_name::get();
 
                         // Check against our static hashes
                         #(#deserialize_branches)*
@@ -715,8 +715,6 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
     };
-
-    println!("Generated impls for {}: {}", enum_name, generated_impls);
 
     // Return the generated code
     TokenStream::from(generated_impls)
