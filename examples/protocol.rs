@@ -1,11 +1,11 @@
 use anyhow::Result;
 use irpc_schema_derive::{schema, serialize_stable};
-use v1::GetRequest;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 mod v1 {
     use super::*;
-    #[schema(Nominal)]
+
+    #[schema(Nominal(name = "v1::GetRequest"))]
     #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub struct GetRequest {
         pub key: String,
@@ -28,7 +28,7 @@ mod v1 {
 
 mod v2 {
     use super::*;
-    #[schema(Nominal)]
+    #[schema(Nominal(name = "v1::GetRequest"))]
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct GetRequest {
         pub key: String,
@@ -50,7 +50,9 @@ mod v2 {
     }
 }
 
-fn roundtrip<T: Serialize, T2: DeserializeOwned>(value: T) -> std::result::Result<T2, postcard::Error> {
+fn roundtrip<T: Serialize, T2: DeserializeOwned>(
+    value: T,
+) -> std::result::Result<T2, postcard::Error> {
     let bytes = postcard::to_allocvec(&value)?;
     let value: T2 = postcard::from_bytes(&bytes)?;
     Ok(value)

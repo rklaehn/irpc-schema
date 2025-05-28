@@ -175,7 +175,7 @@ impl Schema {
             }
 
             // Named Type
-            Schema::Named(named) => format!("{}", named.pretty_print(indent)),
+            Schema::Named(named) => named.pretty_print(indent),
 
             // Sequence
             Schema::Seq(item) => format!(
@@ -210,8 +210,7 @@ impl Schema {
 
     pub fn stable_hash(&self) -> blake3::Hash {
         let bytes = postcard::to_allocvec(self).unwrap();
-        let hash = blake3::hash(&bytes);
-        hash
+        blake3::hash(&bytes)
     }
 }
 

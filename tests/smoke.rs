@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::collections::{BTreeMap, BTreeSet};
 
 use irpc_schema::{HasSchema, Named, Schema};
@@ -24,12 +25,12 @@ struct NominalStruct {
     name: String,
 }
 
-#[schema(Nominal = "CustomName")]
+#[schema(Nominal(name = "CustomName"))]
 struct CustomNamedStruct {
     value: u32,
 }
 
-#[schema(Atom = "CustomAtom")]
+#[schema(Atom(name = "CustomAtom"))]
 struct CustomAtomStruct;
 
 #[schema(Nominal)]
@@ -91,9 +92,13 @@ fn test_bottom_enum_schema() {
 fn test_custom_named_struct() {
     assert_eq!(
         CustomNamedStruct::schema(),
-        Schema::named("CustomName", Schema::Struct(vec![
-            Named("value".to_string(), Schema::Atom("u32".to_string()))
-        ]))
+        Schema::named(
+            "CustomName",
+            Schema::Struct(vec![Named(
+                "value".to_string(),
+                Schema::Atom("u32".to_string())
+            )])
+        )
     );
 }
 

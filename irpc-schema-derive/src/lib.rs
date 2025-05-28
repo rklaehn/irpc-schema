@@ -2,7 +2,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields, ItemEnum, Lit, Meta};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, ItemEnum, Meta};
 
 // The attribute macro for schema generation
 #[proc_macro_attribute]
@@ -17,21 +17,33 @@ pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
             let schema_type = path.get_ident().unwrap().to_string();
             (schema_type, None)
         }
-        Meta::NameValue(name_value) => {
-            let schema_type = name_value.path.get_ident().unwrap().to_string();
-            let explicit_name = match name_value.lit {
-                Lit::Str(lit_str) => lit_str.value(),
-                _ => panic!("Expected string literal for schema name"),
-            };
-            (schema_type, Some(explicit_name))
+        Meta::List(list) => {
+            let schema_type = list.path.get_ident().unwrap().to_string();
+            let mut explicit_name = None;
+
+            // Parse the nested meta items
+            for nested in list.nested.iter() {
+                match nested {
+                    syn::NestedMeta::Meta(Meta::NameValue(nv)) if nv.path.is_ident("name") => {
+                        if let syn::Lit::Str(lit_str) = &nv.lit {
+                            explicit_name = Some(lit_str.value());
+                        } else {
+                            panic!("Expected string literal for name parameter");
+                        }
+                    }
+                    _ => panic!("Unsupported parameter in schema attribute"),
+                }
+            }
+
+            (schema_type, explicit_name)
         }
         _ => panic!("Unsupported attribute format"),
     };
 
     let schema_impl = match schema_type.as_str() {
-        "Atom" => generate_atom_schema(&name, explicit_name.as_ref().map(|s| s.as_str())),
+        "Atom" => generate_atom_schema(name, explicit_name.as_deref()),
         "Structural" => generate_structural_schema(&input.data),
-        "Nominal" => generate_nominal_schema(&name, &input.data, explicit_name.as_ref().map(|s| s.as_str())),
+        "Nominal" => generate_nominal_schema(name, &input.data, explicit_name.as_deref()),
         _ => panic!("Unsupported schema type"),
     };
 
@@ -49,7 +61,10 @@ pub fn schema(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 // Generates an Atom schema (just the type name)
-fn generate_atom_schema(name: &syn::Ident, explicit_name: Option<&str>) -> proc_macro2::TokenStream {
+fn generate_atom_schema(
+    name: &syn::Ident,
+    explicit_name: Option<&str>,
+) -> proc_macro2::TokenStream {
     let type_name = match explicit_name {
         Some(name) => name.to_string(),
         None => name.to_string(),
@@ -162,7 +177,11 @@ fn generate_structural_schema(data: &syn::Data) -> proc_macro2::TokenStream {
 }
 
 // Generates a Nominal schema (Struct or Enum with names)
-fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data, explicit_name: Option<&str>) -> proc_macro2::TokenStream {
+fn generate_nominal_schema(
+    name: &syn::Ident,
+    data: &syn::Data,
+    explicit_name: Option<&str>,
+) -> proc_macro2::TokenStream {
     let name_text = explicit_name.unwrap_or(&name.to_string()).to_string();
     match data {
         Data::Struct(data_struct) => match &data_struct.fields {
@@ -193,8 +212,7 @@ fn generate_nominal_schema(name: &syn::Ident, data: &syn::Data, explicit_name: O
                 let field_schemas: Vec<proc_macro2::TokenStream> = fields
                     .unnamed
                     .iter()
-                    .enumerate()
-                    .map(|(_i, f)| {
+                    .map(|f| {
                         let field_type = &f.ty;
                         quote! {
                             <#field_type as ::irpc_schema::HasSchema>::schema()
@@ -407,12 +425,14 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #original_enum
 
         // Define a struct to hold the schema hashes
+        #[allow(non_snake_case)]
         struct #hashes_struct_name {
             #(#hash_fields),*
         }
 
         // Create a static instance of our hashes using std::sync::OnceLock
         use std::sync::OnceLock;
+        #[allow(non_upper_case_globals)]
         static #static_name: OnceLock<#hashes_struct_name> = OnceLock::new();
 
         impl #hashes_struct_name {
