@@ -1,11 +1,28 @@
 use anyhow::Result;
-use irpc_schema::{schema, serialize_stable};
+use irpc::channel::none::{NoReceiver, NoSender};
+use irpc_schema::{schema, serialize_service};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MyService;
+
+impl irpc::Service for MyService {}
+
 mod v1 {
+
     use super::*;
 
-    #[schema(Nominal(name = "v1::GetRequest"))]
+    impl irpc::Channels<MyService> for GetRequest {
+        type Rx = NoReceiver;
+        type Tx = NoSender;
+    }
+
+    impl irpc::Channels<MyService> for PutRequest {
+        type Rx = NoReceiver;
+        type Tx = NoSender;
+    }
+
+    #[schema(Nominal)]
     #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
     pub struct GetRequest {
         pub key: String,
@@ -18,7 +35,7 @@ mod v1 {
         pub value: String,
     }
 
-    #[serialize_stable]
+    #[serialize_service(MyService)]
     #[derive(Debug, PartialEq, Eq)]
     pub enum Proto {
         Get(GetRequest),
@@ -27,8 +44,19 @@ mod v1 {
 }
 
 mod v2 {
+
+    impl irpc::Channels<MyService> for GetRequest {
+        type Rx = NoReceiver;
+        type Tx = NoSender;
+    }
+
+    impl irpc::Channels<MyService> for PutRequest {
+        type Rx = NoReceiver;
+        type Tx = NoSender;
+    }
+
     use super::*;
-    #[schema(Nominal(name = "v1::GetRequest"))]
+    #[schema(Nominal)]
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct GetRequest {
         pub key: String,
@@ -41,7 +69,7 @@ mod v2 {
         pub value: Option<String>,
     }
 
-    #[serialize_stable]
+    #[serialize_service(MyService)]
     #[derive(Debug, PartialEq, Eq)]
     pub enum Proto {
         Get(GetRequest),

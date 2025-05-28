@@ -1,3 +1,4 @@
+#![cfg_attr(irpc_schema_docsrs, feature(doc_cfg))]
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, vec,
@@ -5,10 +6,21 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+/// Wraps a schema with a name.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Named(pub String, pub Schema);
 
-// Define the ReifiedSchema enum
+#[cfg(all(feature = "derive", feature = "irpc"))]
+#[cfg_attr(
+    irpc_schema_docsrs,
+    doc(cfg(all(feature = "derive", feature = "irpc")))
+)]
+pub use irpc_schema_derive::serialize_service;
+#[cfg(feature = "derive")]
+#[cfg_attr(irpc_schema_docsrs, doc(cfg(feature = "derive")))]
+pub use irpc_schema_derive::{schema, serialize_stable};
+
+/// The schema enum
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Schema {
     /// the unit type
@@ -33,6 +45,22 @@ pub enum Schema {
     Set(Box<Schema>),
     /// a map type
     Map(Box<Schema>, Box<Schema>),
+}
+
+/// Combines a schema with its stable hash.
+///
+/// This is just to avoid the overhead of calling `stable_hash` every time.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaAndHash {
+    pub schema: Schema,
+    pub hash: [u8; 32],
+}
+
+impl From<Schema> for SchemaAndHash {
+    fn from(schema: Schema) -> Self {
+        let hash = *schema.stable_hash().as_bytes();
+        SchemaAndHash { schema, hash }
+    }
 }
 
 impl fmt::Display for Named {
@@ -214,8 +242,9 @@ impl Schema {
     }
 }
 
-// The Schema trait now returns a ReifiedSchema
+/// Trait to attach a schema to a type.
 pub trait HasSchema {
+    /// Returns the schema for this type.
     fn schema() -> Schema;
 }
 
@@ -315,3 +344,68 @@ impl<K: HasSchema, V: HasSchema> HasSchema for HashMap<K, V> {
         Schema::Map(Box::new(K::schema()), Box::new(V::schema()))
     }
 }
+
+#[cfg(feature = "irpc")]
+mod irpc_instances {
+    use super::{HasSchema, Schema};
+
+    impl<T: HasSchema> HasSchema for irpc::channel::oneshot::Receiver<T> {
+        fn schema() -> Schema {
+            Schema::named("irpc::channel::oneshot::Receiver", T::schema())
+        }
+    }
+
+    impl<T: HasSchema> HasSchema for irpc::channel::spsc::Receiver<T> {
+        fn schema() -> Schema {
+            Schema::named("irpc::channel::spsc::Receiver", T::schema())
+        }
+    }
+
+    impl HasSchema for irpc::channel::none::NoReceiver {
+        fn schema() -> Schema {
+            Schema::Atom("irpc::channel::none::NoReceiver".to_string())
+        }
+    }
+
+    impl<T: HasSchema> HasSchema for irpc::channel::oneshot::Sender<T> {
+        fn schema() -> Schema {
+            Schema::named("irpc::channel::oneshot::Sender", T::schema())
+        }
+    }
+
+    impl<T: HasSchema> HasSchema for irpc::channel::spsc::Sender<T> {
+        fn schema() -> Schema {
+            Schema::named("irpc::channel::spsc::Sender", T::schema())
+        }
+    }
+
+    impl HasSchema for irpc::channel::none::NoSender {
+        fn schema() -> Schema {
+            Schema::Atom("irpc::channel::none::NoSender".to_string())
+        }
+    }
+
+    /// Helper trait to summon a schema for that includes the initial message type
+    /// as well as the receiver and sender types, for a given service.
+    pub trait ChannelsSchema<S: irpc::Service>: irpc::Channels<S> {
+        /// Returns the schema for this type, including the receiver and sender kinds and types.
+        fn schema() -> Schema;
+    }
+
+    impl<S, C> ChannelsSchema<S> for C
+    where
+        S: irpc::Service,
+        C: irpc::Channels<S>,
+        C::Rx: HasSchema,
+        C::Tx: HasSchema,
+        C: HasSchema,
+    {
+        fn schema() -> Schema {
+            <(C, C::Rx, C::Tx)>::schema()
+        }
+    }
+}
+
+#[cfg_attr(irpc_schema_docsrs, doc(cfg(feature = "irpc")))]
+#[cfg(feature = "irpc")]
+pub use irpc_instances::ChannelsSchema;

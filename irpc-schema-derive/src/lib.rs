@@ -341,9 +341,9 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let enum_name = &input.ident;
 
     // Generate names for our hash struct
-    let hashes_struct_name =
-        syn::Ident::new(&format!("{}SchemaHashes", enum_name), enum_name.span());
-    let static_name = syn::Ident::new(&format!("__{}_SCHEMA_HASHES", enum_name), enum_name.span());
+    let schema_struct_name = syn::Ident::new(&format!("{}Schemas", enum_name), enum_name.span());
+    let schema_struct_static_name =
+        syn::Ident::new(&format!("__{}_SCHEMAS", enum_name), enum_name.span());
 
     // Collect all variants
     let variants = &input.variants;
@@ -375,26 +375,33 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     // Define fields for our SchemaHashes struct
-    let hash_fields = variant_names.iter().map(|variant_name| {
-        quote! { pub #variant_name: [u8; 32] }
+    let schema_struct_fields = variant_names.iter().map(|variant_name| {
+        quote! { pub #variant_name: ::irpc_schema::SchemaAndHash }
     });
 
     // Generate initialization for our SchemaHashes struct
-    let hash_inits =
+    let schema_struct_inits =
         variant_names
             .iter()
             .zip(field_types.iter())
             .map(|(variant_name, field_type)| {
                 quote! {
-                    #variant_name: *<#field_type as ::irpc_schema::HasSchema>::schema().stable_hash().as_bytes()
+                    #variant_name: ::irpc_schema::SchemaAndHash::from(<#field_type as ::irpc_schema::HasSchema>::schema())
                 }
             });
+
+    let schema_struct_to_tuples = variant_names.iter().map(|variant_name| {
+        let ident = variant_name.to_string();
+        quote! {
+            (#ident, &schema_struct_value.#variant_name.schema, schema_struct_value.#variant_name.hash)
+        }
+    });
 
     // Generate serialization arms using the static hashes
     let serialize_arms = variant_names.iter().map(|variant_name| {
         quote! {
             #enum_name::#variant_name(payload) => {
-                let hash = hashes.#variant_name;
+                let hash = schema_struct_value.#variant_name.hash;
 
                 let mut tup = serializer.serialize_tuple(2)?;
                 tup.serialize_element(&hash)?;
@@ -411,7 +418,7 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
             .zip(field_types.iter())
             .map(|(variant_name, field_type)| {
                 quote! {
-                    if hash_bytes == hashes.#variant_name {
+                    if &hash_bytes == &schema_struct_value.#variant_name.hash {
                         let payload = seq.next_element::<#field_type>()?.ok_or_else(||
                             serde::de::Error::custom("missing payload"))?;
                         return Ok(#enum_name::#variant_name(payload));
@@ -426,26 +433,34 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
         // Define a struct to hold the schema hashes
         #[allow(non_snake_case)]
-        struct #hashes_struct_name {
-            #(#hash_fields),*
+        #[derive(Debug)]
+        struct #schema_struct_name {
+            #(#schema_struct_fields),*
         }
 
         // Create a static instance of our hashes using std::sync::OnceLock
         use std::sync::OnceLock;
         #[allow(non_upper_case_globals)]
-        static #static_name: OnceLock<#hashes_struct_name> = OnceLock::new();
+        static #schema_struct_static_name: OnceLock<#schema_struct_name> = OnceLock::new();
 
-        impl #hashes_struct_name {
+        impl #schema_struct_name {
             // Create a new instance with all the hashes computed
             fn new() -> Self {
                 Self {
-                    #(#hash_inits),*
+                    #(#schema_struct_inits),*
                 }
             }
 
             // Static accessor function to get or initialize the global instance
             fn get() -> &'static Self {
-                #static_name.get_or_init(|| Self::new())
+                #schema_struct_static_name.get_or_init(|| Self::new())
+            }
+        }
+
+        impl #enum_name {
+            pub fn schemas() -> impl ::std::iter::Iterator<Item = (&'static str, &'static ::irpc_schema::Schema, [u8; 32])> {
+                let schema_struct_value = #schema_struct_name::get();
+                [#(#schema_struct_to_tuples),*].into_iter()
             }
         }
 
@@ -456,7 +471,7 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 S: serde::Serializer,
             {
                 use serde::ser::SerializeTuple;
-                let hashes = #hashes_struct_name::get();
+                let schema_struct_value = #schema_struct_name::get();
 
                 match self {
                     #(#serialize_arms),*
@@ -489,7 +504,221 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
                             serde::de::Error::custom("missing hash"))?;
 
                         // Get the schema hashes
-                        let hashes = #hashes_struct_name::get();
+                        let schema_struct_value = #schema_struct_name::get();
+
+                        // Check against our static hashes
+                        #(#deserialize_branches)*
+
+                        // If none matched, return an error
+                        Err(serde::de::Error::custom("unknown discriminator"))
+                    }
+                }
+
+                // Use the locally-defined visitor
+                deserializer.deserialize_tuple(2, Visitor)
+            }
+        }
+    };
+
+    // Return the generated code
+    TokenStream::from(generated_impls)
+}
+
+/// This is identical to `serialize_stable`, but for a specific service.
+///
+/// The schema hashes for each variant will include not just the message type itself,
+/// but also the kind (none, oneshot, spsc) and type of tx and rx channels it uses.
+///
+/// That way any change to channel kinds and types will result in a different hash,
+/// just like a change to the message type itself.
+///
+/// Usage:
+/// ```rust
+/// #[serialize_service(MyService)]
+/// enum MyServiceProto {}
+/// ```
+///
+/// This macro requires that `irpc::Channels` is implemented for the given service type
+/// for each variant of the enum. It also requires that HasSchema is implemented for
+/// all channlels payload types.
+#[proc_macro_attribute]
+pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Service for which this macro is applied
+    let service = parse_macro_input!(attr as syn::Ident);
+
+    // Parse the input tokens into a syntax tree
+    let input = parse_macro_input!(item as ItemEnum);
+
+    // Get the original enum
+    let original_enum = input.clone();
+
+    // Get the name of the enum
+    let enum_name = &input.ident;
+
+    // Generate names for our hash struct
+    let schema_struct_name = syn::Ident::new(&format!("{}Schemas", enum_name), enum_name.span());
+    let schema_struct_static_name =
+        syn::Ident::new(&format!("__{}_SCHEMAS", enum_name), enum_name.span());
+
+    // Collect all variants
+    let variants = &input.variants;
+
+    // Make sure all variants have a single unnamed field
+    for variant in variants {
+        match &variant.fields {
+            Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                // This is good - a single unnamed field
+            }
+            _ => panic!("HashDiscriminator only supports variants with a single unnamed field"),
+        }
+    }
+
+    // Collect all variant names and their field types
+    let mut variant_names = Vec::new();
+    let mut field_types = Vec::new();
+
+    for variant in variants {
+        let variant_name = &variant.ident;
+        variant_names.push(variant_name);
+
+        let field_type = match &variant.fields {
+            Fields::Unnamed(fields) => &fields.unnamed.first().unwrap().ty,
+            _ => unreachable!(), // We've already checked this above
+        };
+
+        field_types.push(field_type);
+    }
+
+    // Define fields for our SchemaHashes struct
+    let schema_struct_fields = variant_names.iter().map(|variant_name| {
+        quote! { pub #variant_name: ::irpc_schema::SchemaAndHash }
+    });
+
+    // Generate initialization for our SchemaHashes struct
+    let schema_struct_inits =
+        variant_names
+            .iter()
+            .zip(field_types.iter())
+            .map(|(variant_name, field_type)| {
+                quote! {
+                    #variant_name: ::irpc_schema::SchemaAndHash::from(<#field_type as ::irpc_schema::ChannelsSchema<#service>>::schema())
+                }
+            });
+
+    let schema_struct_to_tuples = variant_names.iter().map(|variant_name| {
+        let ident = variant_name.to_string();
+        quote! {
+            (#ident, &schema_struct_value.#variant_name.schema, schema_struct_value.#variant_name.hash)
+        }
+    });
+
+    // Generate serialization arms using the static hashes
+    let serialize_arms = variant_names.iter().map(|variant_name| {
+        quote! {
+            #enum_name::#variant_name(payload) => {
+                let hash = schema_struct_value.#variant_name.hash;
+
+                let mut tup = serializer.serialize_tuple(2)?;
+                tup.serialize_element(&hash)?;
+                tup.serialize_element(payload)?;
+                tup.end()
+            }
+        }
+    });
+
+    // Generate deserialization branches using the static hashes
+    let deserialize_branches =
+        variant_names
+            .iter()
+            .zip(field_types.iter())
+            .map(|(variant_name, field_type)| {
+                quote! {
+                    if &hash_bytes == &schema_struct_value.#variant_name.hash {
+                        let payload = seq.next_element::<#field_type>()?.ok_or_else(||
+                            serde::de::Error::custom("missing payload"))?;
+                        return Ok(#enum_name::#variant_name(payload));
+                    }
+                }
+            });
+
+    // Generate the implementation
+    let generated_impls = quote! {
+        // The original enum definition
+        #original_enum
+
+        // Define a struct to hold the schema hashes
+        #[allow(non_snake_case)]
+        struct #schema_struct_name {
+            #(#schema_struct_fields),*
+        }
+
+        // Create a static instance of our hashes using std::sync::OnceLock
+        use std::sync::OnceLock;
+        #[allow(non_upper_case_globals)]
+        static #schema_struct_static_name: OnceLock<#schema_struct_name> = OnceLock::new();
+
+        impl #schema_struct_name {
+            // Create a new instance with all the hashes computed
+            fn new() -> Self {
+                Self {
+                    #(#schema_struct_inits),*
+                }
+            }
+
+            // Static accessor function to get or initialize the global instance
+            fn get() -> &'static Self {
+                #schema_struct_static_name.get_or_init(|| Self::new())
+            }
+        }
+
+        impl #enum_name {
+            pub fn schemas() -> impl ::std::iter::Iterator<Item = (&'static str, &'static ::irpc_schema::Schema, [u8; 32])> {
+                let schema_struct_value = #schema_struct_name::get();
+                [#(#schema_struct_to_tuples),*].into_iter()
+            }
+        }
+
+        // Implementation of serde::Serialize for the enum
+        impl serde::Serialize for #enum_name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                use serde::ser::SerializeTuple;
+                let schema_struct_value = #schema_struct_name::get();
+
+                match self {
+                    #(#serialize_arms),*
+                }
+            }
+        }
+
+        // Implementation of serde::Deserialize for the enum with visitor inside
+        impl<'de> serde::Deserialize<'de> for #enum_name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                // Define the visitor struct inside the deserialize implementation
+                struct Visitor;
+
+                impl<'de> serde::de::Visitor<'de> for Visitor {
+                    type Value = #enum_name;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        formatter.write_str("a tuple with a hash discriminator and payload")
+                    }
+
+                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                    where
+                        A: serde::de::SeqAccess<'de>,
+                    {
+                        // Deserialize the hash discriminator (first element)
+                        let hash_bytes = seq.next_element::<[u8; 32]>()?.ok_or_else(||
+                            serde::de::Error::custom("missing hash"))?;
+
+                        // Get the schema hashes
+                        let schema_struct_value = #schema_struct_name::get();
 
                         // Check against our static hashes
                         #(#deserialize_branches)*
