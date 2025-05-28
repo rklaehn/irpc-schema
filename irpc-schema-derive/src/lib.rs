@@ -390,14 +390,11 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             });
 
-    let schema_struct_to_map =
-        variant_names
-            .iter()
-            .map(|variant_name| {
-                quote! {
-                    map.insert(schema_struct_value.#variant_name.hash, &schema_struct_value.#variant_name.schema);
-                }
-            });
+    let schema_struct_to_tuples = variant_names.iter().map(|variant_name| {
+        quote! {
+            (schema_struct_value.#variant_name.hash, &schema_struct_value.#variant_name.schema)
+        }
+    });
 
     // Generate serialization arms using the static hashes
     let serialize_arms = variant_names.iter().map(|variant_name| {
@@ -457,18 +454,12 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
             fn get() -> &'static Self {
                 #schema_struct_static_name.get_or_init(|| Self::new())
             }
-
-            fn get_hashes(&self) -> ::std::collections::BTreeMap<[u8; 32], &'static ::irpc_schema::Schema> {
-                let mut map = ::std::collections::BTreeMap::<[u8; 32], &'static ::irpc_schema::Schema>::new();
-                let schema_struct_value = Self::get();
-                #(#schema_struct_to_map)*;
-                map
-            }
         }
 
         impl #enum_name {
-            pub fn schemas() -> ::std::collections::BTreeMap<[u8; 32], &'static ::irpc_schema::Schema> {
-                #schema_struct_name::get().get_hashes()
+            pub fn schemas() -> impl ::std::iter::Iterator<Item = ([u8; 32], &'static ::irpc_schema::Schema)> {
+                let schema_struct_value = #schema_struct_name::get();
+                [#(#schema_struct_to_tuples),*].into_iter()
             }
         }
 
@@ -601,6 +592,12 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             });
 
+    let schema_struct_to_tuples = variant_names.iter().map(|variant_name| {
+        quote! {
+            (schema_struct_value.#variant_name.hash, &schema_struct_value.#variant_name.schema)
+        }
+    });
+
     // Generate serialization arms using the static hashes
     let serialize_arms = variant_names.iter().map(|variant_name| {
         quote! {
@@ -657,6 +654,13 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
             // Static accessor function to get or initialize the global instance
             fn get() -> &'static Self {
                 #schema_struct_static_name.get_or_init(|| Self::new())
+            }
+        }
+
+        impl #enum_name {
+            pub fn schemas() -> impl ::std::iter::Iterator<Item = ([u8; 32], &'static ::irpc_schema::Schema)> {
+                let schema_struct_value = #schema_struct_name::get();
+                [#(#schema_struct_to_tuples),*].into_iter()
             }
         }
 
