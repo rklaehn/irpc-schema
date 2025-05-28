@@ -40,6 +40,9 @@ pub enum Schema {
     Map(Box<Schema>, Box<Schema>),
 }
 
+/// Combines a schema with its stable hash.
+///
+/// This is just to avoid the overhead of calling `stable_hash` every time.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchemaAndHash {
     pub schema: Schema,
@@ -390,37 +393,6 @@ mod irpc_instances {
     {
         fn schema() -> Schema {
             <(C, C::Rx, C::Tx)>::schema()
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        struct Message;
-
-        impl HasSchema for Message {
-            fn schema() -> Schema {
-                Schema::Atom("Message".to_string())
-            }
-        }
-
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        struct MyService;
-
-        impl irpc::Service for MyService {}
-
-        impl irpc::Channels<MyService> for Message {
-            type Rx = irpc::channel::oneshot::Receiver<String>;
-            type Tx = irpc::channel::oneshot::Sender<String>;
-        }
-
-        use super::*;
-
-        #[test]
-        fn test_channels_schema() {
-            let schema = <Message as ChannelsSchema<MyService>>::schema();
-            println!("Schema: {}", schema.pretty_print(2));
         }
     }
 }

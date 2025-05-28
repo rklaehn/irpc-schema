@@ -391,8 +391,9 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
             });
 
     let schema_struct_to_tuples = variant_names.iter().map(|variant_name| {
+        let ident = variant_name.to_string();
         quote! {
-            (schema_struct_value.#variant_name.hash, &schema_struct_value.#variant_name.schema)
+            (#ident, &schema_struct_value.#variant_name.schema, schema_struct_value.#variant_name.hash)
         }
     });
 
@@ -457,7 +458,7 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         impl #enum_name {
-            pub fn schemas() -> impl ::std::iter::Iterator<Item = ([u8; 32], &'static ::irpc_schema::Schema)> {
+            pub fn schemas() -> impl ::std::iter::Iterator<Item = (&'static str, &'static ::irpc_schema::Schema, [u8; 32])> {
                 let schema_struct_value = #schema_struct_name::get();
                 [#(#schema_struct_to_tuples),*].into_iter()
             }
@@ -593,8 +594,9 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
             });
 
     let schema_struct_to_tuples = variant_names.iter().map(|variant_name| {
+        let ident = variant_name.to_string();
         quote! {
-            (schema_struct_value.#variant_name.hash, &schema_struct_value.#variant_name.schema)
+            (#ident, &schema_struct_value.#variant_name.schema, schema_struct_value.#variant_name.hash)
         }
     });
 
@@ -658,7 +660,7 @@ pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         impl #enum_name {
-            pub fn schemas() -> impl ::std::iter::Iterator<Item = ([u8; 32], &'static ::irpc_schema::Schema)> {
+            pub fn schemas() -> impl ::std::iter::Iterator<Item = (&'static str, &'static ::irpc_schema::Schema, [u8; 32])> {
                 let schema_struct_value = #schema_struct_name::get();
                 [#(#schema_struct_to_tuples),*].into_iter()
             }

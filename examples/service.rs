@@ -88,8 +88,12 @@ fn roundtrip<T: Serialize, T2: DeserializeOwned>(
 
 fn main() -> Result<()> {
     {
-        for (hash, schema) in v1::Proto::schemas() {
-            println!("{}\n{}\n", hex::encode(hash), schema.pretty_print(0));
+        for (name, schema, hash) in v1::Proto::schemas() {
+            println!(
+                "{name}\n{}\n{}\n",
+                hex::encode(hash),
+                schema.pretty_print(0)
+            );
         }
         let msg = v1::Proto::Get(v1::GetRequest {
             key: "key".to_string(),
