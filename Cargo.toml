@@ -18,6 +18,13 @@ irpc = { version = "0.2.3", optional = true }
 [workspace]
 members = ["irpc-schema-derive"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "irpc_schema_docsrs"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(irpc_schema_docsrs)"] }
+
 [dev-dependencies]
 anyhow = "1.0.98"
 derive_more = { version = "2.0.1", features = ["from"] }

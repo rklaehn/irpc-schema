@@ -1,3 +1,4 @@
+#![cfg_attr(irpc_schema_docsrs, feature(doc_cfg))]
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, vec,
@@ -5,15 +6,21 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+/// Wraps a schema with a name.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Named(pub String, pub Schema);
 
 #[cfg(all(feature = "derive", feature = "irpc"))]
+#[cfg_attr(
+    irpc_schema_docsrs,
+    doc(cfg(all(feature = "derive", feature = "irpc")))
+)]
 pub use irpc_schema_derive::serialize_service;
 #[cfg(feature = "derive")]
+#[cfg_attr(irpc_schema_docsrs, doc(cfg(feature = "derive")))]
 pub use irpc_schema_derive::{schema, serialize_stable};
 
-// Define the ReifiedSchema enum
+/// The schema enum
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Schema {
     /// the unit type
@@ -235,8 +242,9 @@ impl Schema {
     }
 }
 
-// The Schema trait now returns a ReifiedSchema
+/// Trait to attach a schema to a type.
 pub trait HasSchema {
+    /// Returns the schema for this type.
     fn schema() -> Schema;
 }
 
@@ -380,6 +388,7 @@ mod irpc_instances {
     /// Helper trait to summon a schema for that includes the initial message type
     /// as well as the receiver and sender types, for a given service.
     pub trait ChannelsSchema<S: irpc::Service>: irpc::Channels<S> {
+        /// Returns the schema for this type, including the receiver and sender kinds and types.
         fn schema() -> Schema;
     }
 
@@ -397,5 +406,6 @@ mod irpc_instances {
     }
 }
 
+#[cfg_attr(irpc_schema_docsrs, doc(cfg(feature = "irpc")))]
 #[cfg(feature = "irpc")]
 pub use irpc_instances::ChannelsSchema;

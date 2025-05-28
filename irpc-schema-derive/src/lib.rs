@@ -524,11 +524,23 @@ pub fn serialize_stable(_attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(generated_impls)
 }
 
-/// Implements stable serialization and deserialization for an enum with
-/// a number of distinct variants.
+/// This is identical to `serialize_stable`, but for a specific service.
 ///
-/// Each variant must have a single unnamed field of distinct type. Each type
-/// must implement `HasSchema`.
+/// The schema hashes for each variant will include not just the message type itself,
+/// but also the kind (none, oneshot, spsc) and type of tx and rx channels it uses.
+///
+/// That way any change to channel kinds and types will result in a different hash,
+/// just like a change to the message type itself.
+///
+/// Usage:
+/// ```rust
+/// #[serialize_service(MyService)]
+/// enum MyServiceProto {}
+/// ```
+///
+/// This macro requires that `irpc::Channels` is implemented for the given service type
+/// for each variant of the enum. It also requires that HasSchema is implemented for
+/// all channlels payload types.
 #[proc_macro_attribute]
 pub fn serialize_service(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Service for which this macro is applied
