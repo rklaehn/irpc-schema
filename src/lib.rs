@@ -262,6 +262,8 @@ macro_rules! declare_atom {
 }
 
 declare_atom!(
+    bool,
+    char,
     u8,
     u16,
     u32,
@@ -324,6 +326,21 @@ impl<T: HasSchema> HasSchema for std::sync::Arc<T> {
 impl<T: HasSchema> HasSchema for std::rc::Rc<T> {
     fn schema() -> Schema {
         T::schema()
+    }
+}
+
+impl HasSchema for () {
+    fn schema() -> Schema {
+        Schema::Unit
+    }
+}
+
+impl<A: HasSchema, B: HasSchema> HasSchema for std::result::Result<A, B> {
+    fn schema() -> Schema {
+        Schema::Enum(vec![
+            Named("Ok".to_string(), A::schema()),
+            Named("Err".to_string(), B::schema()),
+        ])
     }
 }
 
