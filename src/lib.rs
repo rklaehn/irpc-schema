@@ -281,6 +281,13 @@ declare_atom!(
     &[u8]
 );
 
+#[cfg(feature = "bytes")]
+impl HasSchema for bytes::Bytes {
+    fn schema() -> Schema {
+        Schema::Atom("bytes::Bytes".to_string())
+    }
+}
+
 impl<T: HasSchema> HasSchema for Vec<T> {
     fn schema() -> Schema {
         Schema::Seq(Box::new(T::schema()))
