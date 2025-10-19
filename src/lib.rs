@@ -379,9 +379,9 @@ mod irpc_instances {
         }
     }
 
-    impl<T: HasSchema> HasSchema for irpc::channel::spsc::Receiver<T> {
+    impl<T: HasSchema> HasSchema for irpc::channel::mpsc::Receiver<T> {
         fn schema() -> Schema {
-            Schema::named("irpc::channel::spsc::Receiver", T::schema())
+            Schema::named("irpc::channel::mpsc::Receiver", T::schema())
         }
     }
 
@@ -397,9 +397,9 @@ mod irpc_instances {
         }
     }
 
-    impl<T: HasSchema> HasSchema for irpc::channel::spsc::Sender<T> {
+    impl<T: HasSchema> HasSchema for irpc::channel::mpsc::Sender<T> {
         fn schema() -> Schema {
-            Schema::named("irpc::channel::spsc::Sender", T::schema())
+            Schema::named("irpc::channel::mpsc::Sender", T::schema())
         }
     }
 
