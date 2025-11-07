@@ -27,10 +27,10 @@ rustdoc-args = ["--cfg", "irpc_schema_docsrs"]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(irpc_schema_docsrs)"] }
 
 [dev-dependencies]
-anyhow = "1.0.100"
-derive_more = { version = "2.0.1", features = ["from"] }
-hex = "0.4.3"
-testresult = "0.4.1"
+anyhow = "1"
+derive_more = { version = "2", features = ["from"] }
+hex = "0.4"
+testresult = "0.4"
 
 [features]
 derive = ["dep:irpc-schema-derive"]
