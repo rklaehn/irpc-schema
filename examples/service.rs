@@ -6,7 +6,9 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct MyService;
 
-impl irpc::Service for MyService {}
+impl irpc::Service for MyService {
+    type Message = v2::Proto;
+}
 
 mod v1 {
 
