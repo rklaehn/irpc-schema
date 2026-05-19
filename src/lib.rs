@@ -1,4 +1,4 @@
-#![cfg_attr(irpc_schema_docsrs, feature(doc_cfg))]
+#![cfg_attr(n0_schema_docsrs, feature(doc_cfg))]
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt, vec,
@@ -12,13 +12,13 @@ pub struct Named(pub String, pub Schema);
 
 #[cfg(all(feature = "derive", feature = "irpc"))]
 #[cfg_attr(
-    irpc_schema_docsrs,
+    n0_schema_docsrs,
     doc(cfg(all(feature = "derive", feature = "irpc")))
 )]
-pub use irpc_schema_derive::serialize_service;
+pub use n0_schema_derive::serialize_service;
 #[cfg(feature = "derive")]
-#[cfg_attr(irpc_schema_docsrs, doc(cfg(feature = "derive")))]
-pub use irpc_schema_derive::{schema, serialize_stable};
+#[cfg_attr(n0_schema_docsrs, doc(cfg(feature = "derive")))]
+pub use n0_schema_derive::{schema, serialize_stable};
 
 /// The schema enum
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -430,6 +430,6 @@ mod irpc_instances {
     }
 }
 
-#[cfg_attr(irpc_schema_docsrs, doc(cfg(feature = "irpc")))]
+#[cfg_attr(n0_schema_docsrs, doc(cfg(feature = "irpc")))]
 #[cfg(feature = "irpc")]
 pub use irpc_instances::ChannelsSchema;
